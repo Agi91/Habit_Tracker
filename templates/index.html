@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% block title %}Habit Tracker Dashboard{% endblock %}
+
+{% block extra_style %}
+    <style>
+        /* Table Styling */
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; background-color: #ffffff; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        th, td { border: 1px solid #dee2e6; padding: 10px; text-align: center; }
+        th { background-color: #e9ecef; color: #495057; }
+        
+        /* Completion Cells */
+        .completion-cell { padding: 0; cursor: pointer; } 
+        .completion-link { 
+            text-decoration: none; display: flex; align-items: center; justify-content: center; 
+            width: 100%; height: 100%; color: #fff; font-weight: bold; font-size: 1.2em;
+        } 
+        
+        /* Progress Bar Styling */
+        .progress-bar { background-color: #e9ecef; border-radius: 4px; overflow: hidden; height: 20px; margin-top: 5px; }
+        .progress-fill { background-color: #28a745; height: 100%; transition: width 0.4s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; }
+        
+        /* Heatmap Styling */
+        .heatmap-container { 
+            display: flex; 
+            flex-wrap: wrap; 
+            gap: 3px; 
+            max-width: 100%; 
+            padding: 15px 0; 
+            background-color: #fff; 
+            border-radius: 4px;
+        }
+        .heatmap-cell {
+            width: 15px; 
+            height: 15px;
+            border-radius: 2px;
+            display: block; 
+        }
+        
+        /* ✅ अपडेटेड हीटमैप कलर्स */
+        .heatmap-cell.pending {
+            background-color: #ebedf0; /* Future/Pending Days (Light Grey) */
+        }
+        .heatmap-cell.completed {
+            background-color: #28a745; /* Completed Days (Green) */
+        }
+        .heatmap-cell.missed {
+            background-color: #dc3545; /* Missed/Freez Days (Red) */
+        }
+        .heatmap-cell:hover {
+            opacity: 0.7;
+        }
+        /* Analysis and Habit Card Style */
+        .habit-card {
+            border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 30px;
+            display: flex; flex-direction: column;
+        }
+        .habit-header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+        }
+        .delete-btn {
+            background-color: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8em;
+        }
+        .chart-container {
+            max-width: 300px;
+            margin: 10px auto 0;
+        }
+    </style>
+{% endblock %}
+
+
+{% block content %}
+    <h1>🎯 Habit Tracker Dashboard</h1>
+
+    <h2>➕ Add New Habit</h2>
+    <form method="POST" style="display: flex; gap: 10px; align-items: center; padding: 10px; border: 1px solid #ccc; border-radius: 8px; margin-bottom: 30px;">
+        <input type="text" name="habit_name" placeholder="Enter new habit name" required style="padding: 8px; flex-grow: 1;">
+        
+        <input type="number" name="goal_duration" placeholder="Target Days (e.g., 365)" value="365" min="1" required style="padding: 8px; width: 150px;"> 
+        
+        <button type="submit" style="padding: 8px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Add Habit</button>
+    </form>
+
+    <hr>
+
+    <h2>📅 Last 7 Days Overview</h2>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 20%;">Habit</th>
+                <th style="width: 20%;">Goal Progress</th> 
+                {% for day in seven_days %}
+                <th>{{ day.strftime('%a, %b %d') }}</th> 
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for habit in habit_data %}
+            <tr>
+                <td style="text-align: left; font-weight: bold;">{{ habit.name }}</td>
+                
+                <td style="text-align: left;">
+                    <div style="font-weight: bold; font-size: 0.9em;">{{ habit.goal_status }}</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{ habit.progress_percent }}%;">{{ habit.progress_percent }}%</div>
+                    </div>
+                </td>
+                
+                {% for status in habit.daily_status %}
+                <td class="completion-cell" 
+                    {% if status %}
+                        style="background-color: #28a745;" 
+                    {% else %}
+                        style="background-color: #e9ecef;" 
+                    {% endif %}
+                >
+                    <a href="{{ url_for('complete_habit', habit_id=habit.id, date_str=seven_days[loop.index0] | string) }}" 
+                       class="completion-link" 
+                       title="Click to toggle completion">
+                       {% if status %}
+                           &#10003; 
+                       {% else %}
+                           &nbsp; 
+                       {% endif %}
+                    </a>
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <hr>
+    
+    <h2>📈 Habit Analysis</h2>
+    
+    <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+        {% for habit in habit_data %}
+            <div class="habit-card" style="flex: 1 1 45%;">
+                <div class="habit-header">
+                    <h3>{{ habit.name }}</h3>
+                    <form method="POST" action="{{ url_for('delete_habit', habit_id=habit.id) }}" onsubmit="return confirm('Are you sure you want to delete the habit: {{ habit.name }}? This action cannot be undone.');">
+                        <button type="submit" class="delete-btn">Delete Habit</button>
+                    </form>
+                </div>
+
+                <p style="font-size: 0.9em; color: #6c757d;">Lifetime Performance Percentage</p>
+                <div class="chart-container">
+                    <canvas id="chart-{{ habit.id }}"></canvas>
+                </div>
+                
+                <h4 style="margin-top: 20px;">🔥 365-Day History</h4>
+                <div class="heatmap-container">
+                    {% for day in habit.heatmap_data %}
+                        <a href="{{ url_for('complete_habit', habit_id=habit.id, date_str=day.date | string) }}" 
+                           class="heatmap-cell {{ day.class }}" 
+                           title="Date: {{ day.date.strftime('%Y-%m-%d') }} - {{ day.title }}">
+                        </a>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+    
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+
+<script>
+    // Loop through all habit data passed from Flask to create a chart for each
+    {% for habit in habit_data %}
+        const ctx_{{ habit.id }} = document.getElementById('chart-{{ habit.id }}').getContext('2d');
+        
+        new Chart(ctx_{{ habit.id }}, {
+            type: 'pie', // Pie Chart
+            data: {
+                labels: {{ habit.pie_chart_labels | tojson | safe }}, // ['Completed', 'Missed/Freez']
+                datasets: [{
+                    label: 'Performance Percentage',
+                    data: {{ habit.pie_chart_data | tojson | safe }}, // [Completed %, Missed %]
+                    backgroundColor: [
+                        'rgba(40, 167, 69, 0.7)', // Green for Completed
+                        'rgba(220, 53, 69, 0.7)', // Red for Missed/Freez
+                    ],
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                    },
+                    tooltip: {
+                         callbacks: {
+                           
+                            label: function(context) {
+                                let label = context.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                return label + context.raw + ' %';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    {% endfor %}
+</script>
+
+{% endblock %}
